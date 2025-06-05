@@ -3,141 +3,136 @@
 # dbt-schema-gen
 
 Automate the creation of rich `schema.yml` files for every model in your dbt
-project, using the LLM of your choice (OpenAI, Anthropic Claude, Google Gemini,
-or any custom provider you add).
+project, powered by the LLM of your choice (OpenAI, Anthropic Claude, Google
+Gemini — or any provider you bolt on).
 
 ---
 
-## ✨ Key features
+## ✨  Key features
 
-* **Zero-config walk-through** – scans every `models/**/*.sql` file.
-* **Sector-aware** – pulls `{sector}_sources.yml` to give the LLM maximum
-  context.
-* **Pluggable provider layer** – swap between OpenAI, Anthropic, Gemini, or
-  your own wrapper by changing **one** environment variable.
-* **Editable install** – `pip install -e .` for instant local development.
-* **CLI first** – `dbt-schema-gen /path/to/dbt/project` generates / refreshes
-  all `schema.yml` files in seconds.
+| Feature | Detail |
+|---------|--------|
+| **Zero-config walk-through** | Scans every `models/**/*.sql` file, no model-by-model boilerplate. |
+| **Sector-aware** | Feeds the LLM the matching `{sector}_sources.yml` for richer context. |
+| **Pluggable provider layer** | Switch between OpenAI, Anthropic, Gemini (or your own) by flipping **one** environment variable. |
+| **Global rate-limiter** | A token-bucket caps **all** API calls to `GLOBAL_MAX_RPM` (default 10) – perfect for limited Gemini Flash quotas. |
+| **Automatic retries** | Provider-aware back-off on 429 / quota errors, tunable via `*_MAX_RETRIES`. |
+| **Editable install** | `pip install -e .` for instant local hacking. |
+| **CLI first** | `dbt-schema-gen /path/to/dbt/project` refreshes every `schema.yml` in seconds. |
 
 ---
 
-## 🗂️ Project layout
+## 🗂️  Project layout
 
-```
-
+```text
 dbt-schema-gen/
 ├── pyproject.toml
 ├── requirements.txt
 └── src/dbt_schema_gen/
     ├── cli.py            ← Click command
-    ├── extractor.py      ← SQL + path parsing
+    ├── extractor.py      ← SQL & path parsing
     ├── renderer.py       ← Prompt builder
+    ├── utils.py          ← global RPM limiter + retry decorator
     ├── config.py         ← .env / env-var helper
     └── llm/
         ├── base.py
         ├── openai_provider.py
         ├── anthropic_provider.py
         └── gemini_provider.py
-
 ````
 
 ---
 
-## ⚡ Quick start
+## ⚡  Quick start
 
 ```bash
-# 1  Clone the repo and enter it
+# 1  clone & enter
 git clone https://github.com/your-org/dbt-schema-gen.git
 cd dbt-schema-gen
 
-# 2  Create a virtualenv and install in editable mode
+# 2  create venv & editable install
 python -m venv .venv && source .venv/bin/activate
-pip install -e .                     # pulls deps from pyproject / requirements
+pip install -e .        # pulls deps from pyproject / requirements
 
-# 3  Add your LLM credentials
-cat > .env <<'EOF'
-# choose ONE provider ↓↓↓
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini     # optional
-OPENAI_TEMPERATURE=0.3       # optional
-EOF
+# 3  copy & edit .env
+cp .env.example .env     # then paste your API key(s)
 
-# 4  Run against a dbt repo (can be anywhere)
+# 4  run against a dbt repo
 dbt-schema-gen /absolute/path/to/my_dbt_project
-````
+```
 
-You’ll see log lines like:
+Console output:
 
 ```
-✅  wrote models/execution/schema.yml
-✅  wrote models/marts/core/schema.yml
+↗️  generating schema for models/ESG/metrics/esg_carbon_emissions.sql
+✅  wrote models/ESG/metrics/schema.yml
+…
 All done! 🎉
 ```
 
 ---
 
-## 🔧 Configuration
+## 🔧  Configuration
 
-All options are driven by environment variables (directly or via `.env`).
+### Core variables
 
-| Variable                                                  | Meaning                                       | Default          |
-| --------------------------------------------------------- | --------------------------------------------- | ---------------- |
-| `LLM_PROVIDER`                                            | `openai`, `anthropic`, `gemini`, `<your-own>` | `openai`         |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | API key for the chosen provider               | —                |
-| `OPENAI_MODEL`                                            | e.g. `gpt-4o-mini` \| `gpt-3.5-turbo-0125`    | provider default |
-| `ANTHROPIC_MODEL`                                         | `claude-3-opus-20240229`                      | provider default |
-| `GEMINI_MODEL`                                            | `gemini-1.5-pro-latest`                       | provider default |
-| `*_TEMPERATURE`                                           | sampling temperature (`float`)                | `0.3`            |
+| Variable                                                  | Meaning                                             | Default          |
+| --------------------------------------------------------- | --------------------------------------------------- | ---------------- |
+| `LLM_PROVIDER`                                            | `openai` \| `anthropic` \| `gemini` \| `<your-own>` | `openai`         |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | API key for chosen provider                         | —                |
+| `OPENAI_MODEL`                                            | e.g. `gpt-4o-mini`, `gpt-3.5-turbo-0125`            | provider default |
+| `ANTHROPIC_MODEL`                                         | e.g. `claude-3-opus-20240229`                       | provider default |
+| `GEMINI_MODEL`                                            | `gemini-1.5-flash` \| `gemini-1.5-pro-latest`       | provider default |
+| `*_TEMPERATURE`                                           | sampling temperature (`float`)                      | `0.3`            |
+
+### Rate-limit & retry knobs
+
+| Variable                | Purpose                                                          | Default |
+| ----------------------- | ---------------------------------------------------------------- | ------- |
+| `GLOBAL_MAX_RPM`        | **Global** hard-cap across *all* providers (requests per minute) | `10`    |
+| `OPENAI_MAX_RETRIES`    | extra attempts on 429 for OpenAI                                 | `3`     |
+| `ANTHROPIC_MAX_RETRIES` | extra attempts on 429 for Anthropic                              | `3`     |
+| `GEMINI_MAX_RETRIES`    | extra attempts on 429 for Gemini                                 | `1`     |
+
+> **Tip:** Gemini Flash free tier allows **10 RPM**, so the defaults are safe
+> out-of-the-box.
 
 ---
 
-## 💬 Supported providers
+## 💬  Supported providers
 
-| Provider          | File                                                | Notes                                                                 |
-| ----------------- | --------------------------------------------------- | --------------------------------------------------------------------- |
-| **OpenAI**        | `openai_provider.py`                                | ChatCompletion v1; retries & YAML validation.                         |
-| **Anthropic**     | `anthropic_provider.py`                             | Works with Claude 3; same interface.                                  |
-| **Google Gemini** | `gemini_provider.py`                                | Uses `google-generativeai`; no system role (folded into user prompt). |
-| **Custom**        | *write* `src/dbt_schema_gen/llm/<name>_provider.py` | Sub-class `LLMProvider` and implement `generate(prompt)`.             |
+| Provider  | File                                                  | Notes                                                                          |
+| --------- | ----------------------------------------------------- | ------------------------------------------------------------------------------ |
+| OpenAI    | `openai_provider.py`                                  | ChatCompletion v1, unified retry decorator.                                    |
+| Anthropic | `anthropic_provider.py`                               | Claude 3, unified retry decorator.                                             |
+| Gemini    | `gemini_provider.py`                                  | `google-generativeai`; handles `retry_delay` hints.                            |
+| Custom    | *(write)* `src/dbt_schema_gen/llm/<name>_provider.py` | Sub-class `LLMProvider` and decorate `generate()` with `@retry_on_rate_limit`. |
 
 Switching providers:
 
 ```bash
-LLM_PROVIDER=gemini  GEMINI_API_KEY=AIza...  dbt-schema-gen /path/to/project
+LLM_PROVIDER=gemini \
+GEMINI_API_KEY=AIza... \
+GLOBAL_MAX_RPM=10 \
+dbt-schema-gen /path/to/project
 ```
 
 ---
 
-## 🗺️ How it works
+## 🗺️  How it works
 
 1. **Walk** `models/**/*.sql`.
-2. **Extract**
-
-   * model name, sector, tags
-   * column list from `SELECT` (best-effort)
-   * inline `-- @column col: desc` comments
-3. **Find** the sector’s `{sector}_sources.yml` (if any).
-4. **Build** a structured prompt and feed it to the LLM.
-5. **Validate** the YAML returned; write `schema.yml` beside the model.
+2. **Extract** model-level metadata & column hints.
+3. **Find** `{sector}_sources.yml` for extra context.
+4. **Prompt** the LLM.
+5. **Sanitise + validate** the YAML reply.
+6. **Write / update** one `schema.yml` per directory.
 
 ---
 
-## 🛠️ Development
-
-```bash
-# lint + format
-ruff check src
-black src
-
-# tests (if/when you add them)
-pytest
-```
-
----
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)
 
 
