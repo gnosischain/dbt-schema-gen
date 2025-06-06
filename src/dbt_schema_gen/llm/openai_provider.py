@@ -13,7 +13,7 @@ import openai
 from openai import RateLimitError
 
 from ..config import getenv
-from ..utils import retry_on_rate_limit
+from ..utils.rate_limiter import retry_on_rate_limit
 from .base import LLMProvider
 
 _SYSTEM = "You are a meticulous analytics engineer. Return ONLY valid YAML; no comments or markdown."

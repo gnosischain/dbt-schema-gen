@@ -15,7 +15,7 @@ import google.generativeai as genai
 from google.api_core import exceptions as gexc  # type: ignore
 
 from ..config import getenv
-from ..utils import retry_on_rate_limit
+from ..utils.rate_limiter import retry_on_rate_limit
 from .base import LLMProvider
 
 _SYSTEM_PROMPT = (
