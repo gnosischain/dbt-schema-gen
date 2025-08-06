@@ -102,7 +102,10 @@ def cli(path: Path, models: tuple[str], overwrite: bool, skip_tests: bool) -> No
         )
 
         try:
-            parsed = yaml.safe_load(yaml_tools.sanitize_yaml(llm.generate(prompt)))
+            raw_reply = llm.generate(prompt)
+            sanitized = yaml_tools.sanitize_yaml(raw_reply)
+            normalized = yaml_tools.normalize_schema_yaml(sanitized)
+            parsed = yaml.safe_load(normalized)
         except Exception as exc:
             click.echo(f"⚠️  skipping {sql.name}: {exc}", err=True)
             continue
@@ -125,7 +128,14 @@ def cli(path: Path, models: tuple[str], overwrite: bool, skip_tests: bool) -> No
         for nm in new_models:
             current[nm["name"]] = nm
 
+        # pretty dump
         yaml_tools.dump_yaml({"version": 2, "models": list(current.values())}, path_schema)
+
+        # enforce a cosmetic blank line between models in the saved file
+        txt = path_schema.read_text()
+        txt = txt.replace("models:\n- name:", "models:\n\n- name:")
+        path_schema.write_text(txt)
+
         click.echo(f"✅  wrote {path_schema.relative_to(project_root)}")
 
     click.echo("All done! 🎉")
